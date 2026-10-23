@@ -631,9 +631,9 @@ protocolo:[
       await alterar(r,{responsavelId:eu(),status:'em_analise',encaminhamentos:enc},'assuncao',{motivo:'caso assumido'});
       const l=lista('lead').find(x=>x.protocoloOrigemId===r.id && !x.responsavelId); if(l) await alterar(l,{responsavelId:eu(),vendedorId:eu()},'assuncao',{motivo:'assumido junto com o protocolo '+r.numero});
       return 'Caso assumido'; }})},
-  {id:'responder', rotulo:'Responder ao cliente', quando:r=>aberto(r) && r.status!=='resolvido' && can('protocolo.editar',r), abrir:r=>abrirForm({titulo:'Mensagem ao cliente — '+r.numero, sub:'Visível ao cliente. Você envia pelo canal escolhido e registra aqui.',
+  {id:'responder', rotulo:'Responder ao cliente', quando:r=>aberto(r) && r.status!=='resolvido' && can('protocolo.editar',r), abrir:r=>abrirForm({titulo:'Mensagem ao cliente — '+r.numero, sub:r.wa?'Visível ao cliente. Com o canal WhatsApp, a mensagem sai automaticamente pelo número '+(r.wa.rotulo||r.wa.telefoneEmpresa||'')+'.':'Visível ao cliente. Você envia pelo canal escolhido e registra aqui.',
     campos:[{tipo:'select',nome:'modelo',rotulo:'Modelo de resposta',opcoes:MODELOS.map((m,i)=>[i,m[0]])},{tipo:'textarea',nome:'texto',rotulo:'Mensagem',ajuda:'Se escolher um modelo e deixar vazio, o texto do modelo é usado.'},{tipo:'select',nome:'canal',rotulo:'Canal',obrig:true,valor:r.canal,opcoes:optsLista(['WhatsApp','E-mail','Telefone','Presencial','Instagram'])}], ok:'Registrar mensagem',
-    onSubmit:async v=>{ const texto=v.texto || (v.modelo!==''?MODELOS[v.modelo][1]:''); exigir(texto,'Escreva a mensagem.'); const m={id:uid(),em:agoraISO(),por:eu(),papel:S.sess.papel,texto,canal:v.canal,visivel:true};
+    onSubmit:async v=>{ const texto=v.texto || (v.modelo!==''?MODELOS[v.modelo][1]:''); exigir(texto,'Escreva a mensagem.'); const waEnv=(r.wa && v.canal==='WhatsApp') ? await waEnviar(r, texto) : null; const m={id:uid(),em:agoraISO(),por:eu(),papel:S.sess.papel,texto,canal:v.canal,visivel:true,...(waEnv?{waId:waEnv}:{})};
       const mud={mensagens:[...(r.mensagens||[]),m]}; if(!r.primeiraRespostaEm) mud.primeiraRespostaEm=agoraISO(); if(['aberto','encaminhado','reaberto'].includes(r.status)) mud.status='em_analise'; if(!r.responsavelId) mud.responsavelId=eu();
       if(!r.primeiraRespostaEm) { mud.prazo=prazoNivel(r.nivel); mud.prazoDesde=agoraISO(); }
       await alterar(r,mud,'mensagem',{motivo:'mensagem ao cliente',detalhe:texto.slice(0,140)}); return 'Mensagem registrada'; }})},
@@ -827,7 +827,7 @@ function minhaFila(){ const me=eu(), set=meusSetores(), papel=S.sess.papel;
 
 /* ---------- estrutura da página ---------- */
 const ROTAS = [
-  ['dashboard','Dashboard',null,()=>true],['fila','Minha fila',null,()=>true],['atendimento','Central de atendimento','atendimentos',()=>can('protocolo.ver')||can('lead.ver')||can('pedido.ver')],['tarefas','Tarefas',null,()=>!!S.sess],['notificacoes','Notificações',null,()=>!!S.sess],['funil','Funil comercial','vendas',()=>can('lead.ver')||can('venda.confirmar')||can('lead.criar')],['prospeccao','Prospecção','prospeccao',()=>can('prospeccao.trabalhar')||can('prospeccao.gerir')],['clientes','Clientes','clientes',()=>can('cliente.ver')],['esteira','Esteira','esteira',()=>can('protocolo.ver')||can('esteira.editar')],['aprovacoes','Aprovações',null,()=>can('aprovacao.ver')||can('aprovacao.solicitar')],
+  ['dashboard','Dashboard',null,()=>true],['fila','Minha fila',null,()=>true],['atendimento','Central de atendimento','atendimentos',()=>can('protocolo.ver')||can('lead.ver')||can('pedido.ver')],['whatsapp','WhatsApp','atendimentos',()=>can('protocolo.ver')],['tarefas','Tarefas',null,()=>!!S.sess],['notificacoes','Notificações',null,()=>!!S.sess],['funil','Funil comercial','vendas',()=>can('lead.ver')||can('venda.confirmar')||can('lead.criar')],['prospeccao','Prospecção','prospeccao',()=>can('prospeccao.trabalhar')||can('prospeccao.gerir')],['clientes','Clientes','clientes',()=>can('cliente.ver')],['esteira','Esteira','esteira',()=>can('protocolo.ver')||can('esteira.editar')],['aprovacoes','Aprovações',null,()=>can('aprovacao.ver')||can('aprovacao.solicitar')],
   ['auditoria','Auditoria','vendas',()=>can('pedido.auditar')],['financeiro','Financeiro','vendas',()=>can('financeiro.confirmar')],['operacao','Ordens de Serviço','os',()=>can('execucao.editar')||can('pedido.ver')],
   ['comissoes','Comissões','comissoes',()=>can('comissao.ver')],['chat','Chat interno','chat_interno',()=>!!S.sess],['logbook','Log Book','logbook',()=>!!S.sess],['business','Business/Benefícios','business',()=>can('protocolo.ver')||can('config.editar')],['sep'],
   ['mobile','3Tree Mobile','mobile',()=>can('protocolo.ver')||can('cliente.ver')],['card','3Tree Card','card',()=>can('protocolo.ver')||can('cliente.ver')],['rewards','Rewards/Pontos','rewards',()=>can('protocolo.ver')||can('cliente.ver')],['sep'],
@@ -836,10 +836,10 @@ const rotaLiberada = x => x[3]() && moduloLiberado(x[2]);
 function layout(conteudo){
   const r=S.rota.split('/')[1]||'fila'; const atribs=atribuicoesDe(eu());
   const fila=minhaFila(); const quentes=fila.filter(x=>alertas(x).some(a=>a[0]==='bad')).length;
-  const rail = ROTAS.map(x=> x[0]==='sep' ? '<div class="sep"></div>' : (rotaLiberada(x)?`<a href="#/${x[0]}" class="${r===x[0]?'on':''}">${esc(trMenu(x[0],x[1]))}${x[0]==='fila'?`<span class="count ${quentes?'hot':''}">${fila.length}</span>`:''}${MODULOS[x[2]]?.status==='em_breve'?'<span class="count">Em breve</span>':''}</a>`:'')).join('').replace(/(<div class="sep"><\/div>)+/g,'<div class="sep"></div>');
+  const rail = ROTAS.map(x=> x[0]==='sep' ? '<div class="sep"></div>' : (rotaLiberada(x)?`<a href="#/${x[0]}" class="${r===x[0]?'on':''}">${esc(trMenu(x[0],x[1]))}${x[0]==='fila'?`<span class="count ${quentes?'hot':''}">${fila.length}</span>`:''}${x[0]==='whatsapp'&&typeof waEsperando==='function'&&waEsperando()?`<span class="count hot">${waEsperando()}</span>`:''}${MODULOS[x[2]]?.status==='em_breve'?'<span class="count">Em breve</span>':''}</a>`:'')).join('').replace(/(<div class="sep"><\/div>)+/g,'<div class="sep"></div>');
   return `<header class="top"><a class="brand" href="#/dashboard" style="text-decoration:none;color:inherit" aria-label="Início">${LOGO}<span>3TreeUniverse</span></a>
     <form class="search" id="busca" role="search"><input id="q" type="search" placeholder="Buscar nome, telefone, e-mail ou número" value="${esc(S.q)}" aria-label="Buscar"></form>
-    <div class="who"><span class="mode" title="${S.store.modo==='local'?'Dados só neste navegador':'Dados compartilhados entre quem abre este preview'}">Teste · ${S.store.modo==='local'?'local':'compartilhado'}</span>
+    <div class="who"><span class="mode" title="${S.store.modo==='online'?'Banco online (Supabase): todos os aparelhos veem os mesmos dados':S.store.modo==='local'?'Dados só neste navegador':'Dados compartilhados entre quem abre este preview'}">${S.store.modo==='online'?'Online':'Teste · '+(S.store.modo==='local'?'local':'compartilhado')}</span>
     <a class="btn small" href="#/notificacoes" aria-label="Notificações" id="sino">🔔 ${naoLidas()}</a>${seletorIdioma('langEq',langEquipe())}<select id="papelAtivo" aria-label="Papel ativo">${atribs.map(a=>{ const k=a.papel+'|'+(a.unidadeId||''); return `<option value="${esc(k)}"${a.papel===S.sess.papel&&(a.unidadeId||'')===(S.sess.unidadeId||'')?' selected':''}>${esc(PAPEIS[a.papel])} · ${esc(a.unidadeId?unidade(a.unidadeId)?.nome:'Todas as unidades')}</option>`; }).join('')}</select>
     <button class="btn small" data-sair="1" title="Trocar a pessoa de teste">${esc(nomeP(eu()).split(' ')[0])} ⇄</button></div></header>
   <div class="shell"><nav class="rail" aria-label="Seções">${rail}</nav><main id="main">${conteudo}</main></div>
@@ -982,7 +982,7 @@ function fatos(r){ const F=[]; const f=(k,v)=>F.push(`<div><dt>${k}</dt><dd>${v}
     f('Responsável atual',esc(nomeP(r.responsavelId))); if(r.vendedorId && r.vendedorId!==r.responsavelId) f('Vendedor',esc(nomeP(r.vendedorId))); f('Prazo',r.prazo?fmtData(r.prazo)+(r.pausadoEm?' (pausado)':''):'—');
     f('Aberto em',fmtData(r.criadoEm)+' por '+esc(nomeP(r.criadoPor))); f('Última alteração',fmtData(r.atualizadoEm)); }
   if(r.tipo==='pedido'){ f('Preço confirmado',mo(r,r.preco)); f('Margem',mo(r,r.margem)); f('Pagamento',esc(PAG[r.pagamento?.status]||'Pendente')+(r.pagamento?.forma?' · '+esc(r.pagamento.forma):'')); f('Modalidade',esc({viagem:'Viagem',entrega:'Entrega',retirada:'Retirada presencial',servico:'Serviço'}[r.modalidade]||'—')); f('Ordem de Serviço',esc(r.os||'Ainda não gerada')); f('Emissão/contratação',esc(r.emissao?.status||'—')+(r.emissao?.localizador?' · '+esc(r.emissao.localizador):'')); }
-  if(r.tipo==='protocolo'){ f('Módulo',esc(r.modulo?MODULOS[r.modulo].nome:'Geral')); f('Origem',r.origem==='site'?'Site (cliente)':'Equipe'); f('Canal',esc(r.canal)); f('Categoria',esc(r.categoria)); f('Prioridade',esc({alta:'Alta',media:'Média',baixa:'Baixa'}[r.prioridade])); f('Nível',esc(SETORES[r.nivel])); f('Reaberturas',r.reaberturas||0); if(r.reembolso) f('Reembolso',mo(r,r.reembolso.valor)+' · '+esc(r.reembolso.status)); }
+  if(r.tipo==='protocolo'){ f('Módulo',esc(r.modulo?MODULOS[r.modulo].nome:'Geral')); f('Origem',r.origem==='site'?'Site (cliente)':r.origem==='whatsapp'?'WhatsApp (cliente)':'Equipe'); f('Canal',esc(r.canal)); f('Categoria',esc(r.categoria)); f('Prioridade',esc({alta:'Alta',media:'Média',baixa:'Baixa'}[r.prioridade])); f('Nível',esc(SETORES[r.nivel])); f('Reaberturas',r.reaberturas||0); if(r.reembolso) f('Reembolso',mo(r,r.reembolso.valor)+' · '+esc(r.reembolso.status)); }
   if(r.tipo==='proposta'){ f('Subtotal',mo(r,r.subtotal)); f('Desconto',r.descontoPct+'%'); f('Total',mo(r,r.total)); f('Margem',mo(r,r.margem)+' ('+r.margemPct+'%)'); f('Válida até',fmtDia(r.validade)); }
   if(r.tipo==='simulacao'){ f('Versão','v'+r.versao); f('Custo',mo(r,r.totalCusto)); f('Taxas',mo(r,r.totalTaxas)); f('Preço final',mo(r,r.totalPreco)); f('Margem',mo(r,r.margem)+' ('+r.margemPct+'%)'); f('Válida até',fmtDia(r.validade)); }
   if(r.tipo==='externa'){ f('Órgão',esc(r.orgao)); f('Nº no órgão',esc(r.numeroExterno)); f('Link',r.link?`<a href="${esc(r.link)}" target="_blank" rel="noopener">abrir</a>`:'—'); }
@@ -1158,7 +1158,7 @@ function render(){ const app=$('#app'); if(!S.pronto) return;
   if(!sessaoValida()){ S.sess=null; app.innerHTML=telaEntrada(); return; }
   const t=partes[0]; let c;
   const rota=ROTAS.find(x=>x[0]===t); if(rota && rota[2] && !rotaLiberada(rota)){ app.innerHTML=layout('<div class="panel empty">Este módulo não está liberado para o seu papel. O Administrador geral libera módulos em Configurações.</div>'); return; }
-  if(['card','rewards','mobile'].includes(t)) c=telaModulo(t); else if(t==='esteira') c=telaEsteira(); else if(t==='comissoes') c=telaComissoes(); else if(t==='chat') c=telaChatInterno(); else if(t==='logbook') c=telaLogbook(); else if(t==='business') c=telaBusiness(); else if(t==='prospeccao') c=telaProspeccao(); else if(t==='dashboard') c=telaDashboard(); else if(t==='tarefas') c=telaTarefas(); else if(t==='notificacoes') c=telaNotificacoes(); else if(t==='trilha') c=telaTrilha(); else if(t==='atendimento') c=telaCentral(); else if(t==='r') c=telaFicha(partes[1]); else if(t==='funil') c=telaFunil(); else if(t==='clientes') c=telaClientes(); else if(t==='atendimento') c=telaAtendimento();
+  if(['card','rewards','mobile'].includes(t)) c=telaModulo(t); else if(t==='esteira') c=telaEsteira(); else if(t==='comissoes') c=telaComissoes(); else if(t==='chat') c=telaChatInterno(); else if(t==='logbook') c=telaLogbook(); else if(t==='business') c=telaBusiness(); else if(t==='prospeccao') c=telaProspeccao(); else if(t==='dashboard') c=telaDashboard(); else if(t==='tarefas') c=telaTarefas(); else if(t==='notificacoes') c=telaNotificacoes(); else if(t==='trilha') c=telaTrilha(); else if(t==='atendimento') c=telaCentral(); else if(t==='whatsapp') c=telaWhatsApp(); else if(t==='r') c=telaFicha(partes[1]); else if(t==='funil') c=telaFunil(); else if(t==='clientes') c=telaClientes(); else if(t==='atendimento') c=telaAtendimento();
   else if(t==='auditoria') c=telaSetorPedidos('Auditoria','Nenhum pedido é executado antes de passar por aqui.',r=>['em_auditoria','devolvido'].includes(r.status));
   else if(t==='operacao') c=telaSetorPedidos('Ordens de Serviço','Pedidos aprovados aguardando Ordem de Serviço e Ordens em execução.',r=>['aprovado','em_execucao'].includes(r.status));
   else if(t==='financeiro') c=telaSetorPedidos('Financeiro','Recebimentos a confirmar e reembolsos aprovados.',r=>!['cancelado','concluido'].includes(r.status) && r.pagamento?.status!=='confirmado') + `<h2 style="margin:18px 0 8px">Reembolsos aprovados</h2>${tabelaCasos(casosVisiveis().filter(r=>r.tipo==='protocolo'&&r.reembolso?.status==='aprovado'),'Nenhum reembolso a executar.')}`;
@@ -1387,8 +1387,8 @@ function esteiraHTML(r){ const ls=etapasDe(r), i=ls.indexOf(r.etapa); const pend
   <p class="small">Etapa atual: <b>${esc(nomeEtapa(r.etapa))}</b> há ${esc(tempoNaEtapa(r))} · setor ${esc(SETORES[r.setor]||r.setor)} · responsável ${esc(nomeP(r.responsavelId))}${r.prazo?' · prazo '+fmtData(r.prazo):''}</p>
   ${pend.length?`<h3>Pendências</h3><ul class="small">${pend.map(p=>`<li>${p.resolvida?'<s>':''}${esc(p.texto)} <span class="muted">(${esc({cliente:'cliente',equipe:'equipe',parceiro:'parceiro'}[p.resp]||'equipe')})</span>${p.resolvida?'</s>':(can('protocolo.editar',r)?` <button class="btn small" data-pend="${r.id}:${p.id}">Resolver</button>`:'')}</li>`).join('')}</ul>`:'<p class="small muted">Sem pendências.</p>'}</section>`; }
 function chatClienteEquipe(r){ const ms=(r.mensagens||[]).filter(m=>m.visivel);
-  return `<p class="small muted">💬 O cliente vê estas mensagens em Meus atendimentos.</p>${ms.map(m=>m.autor==='cliente'?`<div class="msg"><header>Cliente · ${esc(m.canal||'site')} · ${fmtData(m.em)}</header><p>${esc(m.texto)}</p></div>`:`<div class="msg team"><header>${esc(nomeP(m.por))} (${esc(PAPEIS[m.papel]||'')}) · ${esc(m.canal||'')} · ${fmtData(m.em)}</header><p>${esc(m.texto)}</p></div>`).join('')||'<p class="muted">Nenhuma mensagem.</p>'}
-  ${aberto(r)&&r.status!=='encerrado'&&can('protocolo.editar',r)?`<form id="compCliente" data-id="${r.id}" class="panel"><div class="field"><label for="cc">Mensagem ao cliente</label><textarea id="cc" name="m" required></textarea></div><button class="btn primary">Enviar ao cliente</button></form>`:''}`; }
+  return `<p class="small muted">${r.wa?'💬 Conversa do WhatsApp · '+esc(r.wa.rotulo||'')+' · +'+esc(r.wa.contato)+'. O que você enviar aqui sai pelo WhatsApp.':'💬 O cliente vê estas mensagens em Meus atendimentos.'}</p>${ms.map(m=>m.autor==='cliente'?`<div class="msg"><header>Cliente · ${esc(m.canal||'site')} · ${fmtData(m.em)}</header><p>${esc(m.texto)}</p></div>`:`<div class="msg team"><header>${m.auto?'Resposta automática':esc(nomeP(m.por))+' ('+esc(PAPEIS[m.papel]||'')+')'} · ${esc(m.canal||'')} · ${fmtData(m.em)}</header><p>${esc(m.texto)}</p></div>`).join('')||'<p class="muted">Nenhuma mensagem.</p>'}
+  ${aberto(r)&&r.status!=='encerrado'&&can('protocolo.editar',r)?`<form id="compCliente" data-id="${r.id}" class="panel"><div class="field"><label for="cc">Mensagem ao cliente</label><textarea id="cc" name="m" required></textarea></div><button class="btn primary">${r.wa?'Enviar pelo WhatsApp':'Enviar ao cliente'}</button></form>`:''}`; }
 function chatInternoRec(r){ const campo=r.tipo==='protocolo'?'mensagens':'notas'; const ms=(r[campo]||[]).filter(m=>!m.visivel && m.autor!=='cliente');
   return `<p class="small muted">🔒 Só a equipe vê. Nunca aparece para o cliente.</p>${ms.map(m=>`<div class="msg note"><header>${esc(nomeP(m.por))} (${esc(PAPEIS[m.papel]||'')}) · ${fmtData(m.em)}</header><p>${esc(m.texto)}</p></div>`).join('')||'<p class="muted">Nenhuma mensagem interna.</p>'}
   <form id="compInterno" data-id="${r.id}" class="panel"><div class="field"><label for="ci">Mensagem interna</label><textarea id="ci" name="m" required></textarea></div><button class="btn">Enviar para a equipe</button></form>`; }
@@ -1550,9 +1550,9 @@ document.addEventListener('submit', async ev=>{ const f=ev.target; if(!['compCli
   try { const txt=String(new FormData(f).get('m')||'').trim();
     if(f.id==='lbFiltro'){ const fd=new FormData(f); S.aba.lbst=fd.get('st'); S.aba.lbcat=fd.get('cat'); S.aba.lbq=fd.get('q'); render(); return; }
     exigir(txt,'Escreva a mensagem.'); const r=get(f.dataset.id);
-    if(f.id==='compCliente'){ const m={id:uid(),em:agoraISO(),por:eu(),papel:S.sess.papel,texto:txt,canal:'Chat do site',visivel:true}; const mud={mensagens:[...(r.mensagens||[]),m]};
+    if(f.id==='compCliente'){ const waEnv = r.wa ? await waEnviar(r, txt) : null; const m={id:uid(),em:agoraISO(),por:eu(),papel:S.sess.papel,texto:txt,canal:r.wa?'WhatsApp':'Chat do site',visivel:true,...(waEnv?{waId:waEnv}:{})}; const mud={mensagens:[...(r.mensagens||[]),m]};
       if(!r.primeiraRespostaEm){ mud.primeiraRespostaEm=agoraISO(); mud.prazo=prazoNivel(r.nivel); mud.prazoDesde=agoraISO(); } if(['aberto','encaminhado','reaberto'].includes(r.status)) mud.status='em_analise'; if(!r.responsavelId) mud.responsavelId=eu();
-      await alterar(r,mud,'mensagem',{motivo:'mensagem ao cliente',detalhe:txt.slice(0,140)}); toast('Enviada ao cliente'); }
+      await alterar(r,mud,'mensagem',{motivo:'mensagem ao cliente',detalhe:txt.slice(0,140)}); toast(r.wa?'Enviada pelo WhatsApp':'Enviada ao cliente'); }
     if(f.id==='compInterno'){ const campo=r.tipo==='protocolo'?'mensagens':'notas'; await alterar(r,{[campo]:[...(r[campo]||[]),{id:uid(),em:agoraISO(),por:eu(),papel:S.sess.papel,texto:txt,visivel:false}]},'nota',{motivo:'mensagem interna',detalhe:txt.slice(0,140)}); toast('Mensagem interna enviada'); }
     if(f.id==='chatInt'){ exigir((r.participantes||[]).includes(eu()),'Você não participa desta conversa.'); await alterar(r,{mensagens:[...(r.mensagens||[]),{id:uid(),em:agoraISO(),por:eu(),texto:txt}]},'mensagem',{motivo:'mensagem interna',detalhe:txt.slice(0,80)}); }
     render(); } catch(e){ toast(e.message||String(e)); } });
@@ -2315,10 +2315,123 @@ function itensIniciais(lead){ const p=produto(lead?.produtoId); if(!p) return un
 
 <script>
 "use strict";
+/* =====================================================================
+   Banco online (Supabase) + WhatsApp
+   - Se o Netlify tiver SUPABASE_URL e SUPABASE_ANON_KEY, o sistema pede login
+     e passa a gravar no Supabase (todos os aparelhos veem os mesmos dados).
+   - Sem isso, continua como prévia (dados no navegador).
+   ===================================================================== */
+const SB_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
+async function configOnline(){
+  try { const r = await fetch('/.netlify/functions/config', {cache:'no-store'}); if(!r.ok) return null; const c = await r.json(); return c && c.online ? c : null; }
+  catch(e){ return null; } }
+function carregarScript(src){ return new Promise((ok,erro)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=()=>erro(new Error('Não foi possível carregar '+src)); document.head.appendChild(s); }); }
+async function clienteSupabase(c){ if(!window.supabase) await carregarScript(SB_JS); return window.supabase.createClient(c.url, c.anon, {auth:{persistSession:true, autoRefreshToken:true}}); }
+
+function telaLoginOnline(sb){ return new Promise(resolve=>{
+  const app=$('#app');
+  app.innerHTML = `<div class="gate"><div class="panel"><div class="brand" style="margin-bottom:12px">${LOGO}<span>Sistema V</span></div><h1>Entrar</h1>
+    <p class="muted">Use o e-mail e a senha cadastrados no Supabase do Sistema V.</p>
+    <form id="sbLogin"><div class="field"><label for="sbe">E-mail</label><input id="sbe" name="email" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="sbs">Senha</label><input id="sbs" name="senha" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary">Entrar</button><p class="small muted" id="sbMsg" role="status" style="margin-top:10px"></p></form></div></div>`;
+  $('#sbLogin').addEventListener('submit', async ev=>{ ev.preventDefault(); const fd=new FormData(ev.target); const msg=$('#sbMsg'); msg.textContent='Entrando…';
+    const {data, error} = await sb.auth.signInWithPassword({email:String(fd.get('email')).trim(), password:String(fd.get('senha'))});
+    if(error){ msg.textContent='E-mail ou senha incorretos.'; return; } resolve(data.session); });
+}); }
+
+function SupaStore(sb){
+  const recs = {}; let onChange = ()=>{};
+  const emitir = () => onChange(Object.values(recs));
+  const chk = ({data, error}) => { if(error) throw new Error(error.message); return data; };
+  return {
+    modo:'online',
+    async init(cb){ onChange=cb;
+      for(let de=0;;de+=1000){ const rows = chk(await sb.from('recs').select('data').range(de, de+999)); rows.forEach(x=>{ recs[x.data.id]=x.data; }); if(rows.length<1000) break; }
+      emitir();
+      sb.channel('recs-ao-vivo').on('postgres_changes',{event:'*',schema:'public',table:'recs'}, p=>{
+        if(p.eventType==='DELETE'){ delete recs[p.old.id]; } else if(p.new?.data){ recs[p.new.id]=p.new.data; }
+        emitir(); }).subscribe(); },
+    async save(rec){ const data=JSON.parse(JSON.stringify(rec)); recs[rec.id]=data; emitir();
+      chk(await sb.from('recs').upsert({id:rec.id, tipo:rec.tipo, data, atualizado:new Date().toISOString()})); },
+    async addEvent(ev){ chk(await sb.from('ev').insert({id:ev.id, ref:ev.ref, n:ev.n, em:ev.em, data:ev})); },
+    async events(ref){ return chk(await sb.from('ev').select('data').eq('ref',ref).order('n')).map(x=>x.data); },
+    async recentEvents(n){ return chk(await sb.from('ev').select('data').order('em',{ascending:false}).limit(n)).map(x=>x.data); },
+    async nextSeq(chave){ return chk(await sb.rpc('next_seq',{p_chave:chave, p_n:1})); },
+    async nextSeqBloco(chave,n){ return chk(await sb.rpc('next_seq',{p_chave:chave, p_n:n})); }
+  };
+}
+
+/* Copia os dados da prévia (guardados neste navegador) para o banco online. */
+async function importarPrevia(){
+  const sb=S.sb; exigir(sb,'O banco online não está ativo.');
+  let d=null; try { d=JSON.parse(localStorage.getItem('tu_preview_v1')||'null'); } catch(e){}
+  exigir(d && Object.keys(d.recs||{}).length, 'Não há dados da prévia neste navegador.');
+  const recs=Object.values(d.recs);
+  for(let i=0;i<recs.length;i+=200){ const lote=recs.slice(i,i+200).map(r=>({id:r.id, tipo:r.tipo, data:r, atualizado:r.atualizadoEm||new Date().toISOString()}));
+    const {error}=await sb.from('recs').upsert(lote); if(error) throw new Error(error.message); }
+  const evs=d.ev||[];
+  for(let i=0;i<evs.length;i+=200){ const lote=evs.slice(i,i+200).map(e=>({id:e.id, ref:e.ref, n:e.n, em:e.em, data:e}));
+    const {error}=await sb.from('ev').upsert(lote,{onConflict:'id', ignoreDuplicates:true}); if(error) throw new Error(error.message); }
+  for(const [chave,ult] of Object.entries(d.seq||{})){ const {error}=await sb.rpc('ajustar_seq',{p_chave:chave, p_minimo:ult}); if(error) throw new Error(error.message); }
+  return `${recs.length} registros e ${evs.length} eventos copiados para o banco online.`;
+}
+
+/* ---------- WhatsApp ---------- */
+async function waEnviar(r, texto){
+  exigir(S.sb, 'O WhatsApp só funciona com o banco online ativo.');
+  const {data:{session}} = await S.sb.auth.getSession(); exigir(session, 'Faça login de novo.');
+  const resp = await fetch('/.netlify/functions/whatsapp-enviar',{method:'POST', headers:{'content-type':'application/json', authorization:'Bearer '+session.access_token}, body:JSON.stringify({protocoloId:r.id, texto})});
+  const d = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(d.erro || 'Falha ao enviar pelo WhatsApp.');
+  return d.waId || null;
+}
+function waEsperando(){ return lista('protocolo').filter(r=>{ if(!r.wa||!aberto(r)||!visivel(r)) return false; const ms=(r.mensagens||[]).filter(m=>m.visivel); return ms.length && ms[ms.length-1].autor==='cliente'; }).length; }
+async function carregarNumerosWA(){ if(!S.sb || S.waNums) return; try { const {data}=await S.sb.from('wa_numeros').select('*').order('rotulo'); S.waNums=data||[]; render(); } catch(e){ S.waNums=[]; } }
+function telaWhatsApp(){
+  if(S.store?.modo!=='online') return `<h1>WhatsApp</h1><div class="panel"><p>A caixa de entrada do WhatsApp precisa do <b>banco online</b> (Supabase) ativo.</p><p class="muted">Siga o guia <b>ATIVAR-WHATSAPP.md</b> no repositório do Sistema V. Enquanto isso, os protocolos continuam sendo abertos manualmente com o canal "WhatsApp".</p></div>`;
+  carregarNumerosWA();
+  const nums=S.waNums||[]; const filtro=S.aba.wan||'';
+  const ult = r => { const ms=(r.mensagens||[]).filter(m=>m.visivel); return ms[ms.length-1]; };
+  const prots = lista('protocolo').filter(r=>r.wa && visivel(r) && (!filtro || r.wa.phoneNumberId===filtro))
+    .sort((a,b)=>String(ult(b)?.em||b.atualizadoEm).localeCompare(String(ult(a)?.em||a.atualizadoEm)));
+  const esperando = prots.filter(r=>aberto(r) && ult(r)?.autor==='cliente');
+  const chip = (id,nome,n) => `<button class="btn small ${filtro===id?'primary':''}" data-aba="wan:${esc(id)}">${esc(nome)}${n!=null?' · '+n:''}</button>`;
+  const linha = r => { const m=ult(r); const cli=get(r.clienteId); const espera = aberto(r) && m?.autor==='cliente';
+    return `<tr class="link" data-go="#/r/${r.id}"><td>${espera?'<span class="dot" title="Aguardando resposta"></span>':''}${esc(r.numero)}<div class="small muted">${esc(r.wa.rotulo||r.wa.telefoneEmpresa||'')}</div></td>
+      <td><b>${esc(cli?.nome || r.wa.nome || '+'+r.wa.contato)}</b><div class="small muted">+${esc(r.wa.contato)}</div></td>
+      <td>${m?`<span class="small">${m.autor==='cliente'?'':'<b>Você:</b> '}${esc(String(m.texto).slice(0,90))}</span><div class="small muted">${fmtData(m.em)}</div>`:'—'}</td>
+      <td>${chipStatus(r.status)}</td></tr>`; };
+  return `<h1>WhatsApp</h1>
+    <p class="muted">Todas as conversas dos números ligados ao sistema. Cada conversa nova vira um protocolo 3TU e recebe o número automaticamente. A resposta sai pelo mesmo número que recebeu.</p>
+    <div class="row" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">${chip('','Todos os números',prots.length&&!filtro?prots.length:null)}${nums.map(n=>chip(n.phone_number_id, n.rotulo||n.telefone||n.phone_number_id, null)).join('')}</div>
+    ${esperando.length?`<div class="alert warn" style="margin-bottom:12px">${esperando.length} conversa(s) aguardando resposta.</div>`:''}
+    ${prots.length?`<div class="tablewrap"><table class="cards"><thead><tr><th>Protocolo / número</th><th>Cliente</th><th>Última mensagem</th><th>Status</th></tr></thead><tbody>${prots.map(linha).join('')}</tbody></table></div>`
+      :`<div class="panel empty">Nenhuma conversa de WhatsApp ainda.${nums.length?'':' Cadastre os números na tabela <b>wa_numeros</b> do Supabase (veja o guia).'}</div>`}
+    <section class="panel" style="margin-top:18px"><h2>Números ligados</h2>${nums.length?`<ul>${nums.map(n=>`<li><b>${esc(n.rotulo)}</b> ${esc(n.telefone||'')} ${n.ativo?'':'<span class="muted">(desativado)</span>'}</li>`).join('')}</ul>`:'<p class="muted">Nenhum número cadastrado ainda.</p>'}
+      <p class="small muted">Regra do WhatsApp: texto livre só até 24h depois da última mensagem do cliente.</p>
+      ${can('config.editar')?`<p style="margin-top:12px"><button class="btn small" data-svimportar="1">Importar dados da prévia deste navegador</button> <button class="btn small" data-svsaironline="1">Sair da conta online</button></p>`:''}</section>`;
+}
+document.addEventListener('click', async ev=>{ const el=ev.target.closest('[data-svimportar],[data-svsaironline]'); if(!el) return;
+  try { if(el.dataset.svimportar){ if(!confirm('Copiar os dados da prévia deste navegador para o banco online?')) return; toast('Importando…'); toast(await importarPrevia()); }
+    else { await S.sb.auth.signOut(); S.sess=null; try{ localStorage.removeItem('tu_sess'); }catch(e){} location.reload(); } }
+  catch(e){ toast(e.message||String(e)); } });
+</script>
+
+<script>
+"use strict";
 (async function boot(){
   try { S.sess=JSON.parse(localStorage.getItem('tu_sess')||'null'); } catch(e){ S.sess=null; }
-  let db=null; try { if(window.claude && typeof window.claude.use==='function') db = await window.claude.use('db'); } catch(e){ db=null; }
   let agendado=false; const aoMudar = list=>{ indexar(list); if(!agendado){ agendado=true; requestAnimationFrame(()=>{ agendado=false; render(); }); } };
+  const online = await configOnline();
+  if(online){
+    try { const sb = await clienteSupabase(online); let {data:{session}} = await sb.auth.getSession(); if(!session) session = await telaLoginOnline(sb);
+      S.sb = sb; S.authEmail = (session.user?.email||'').toLowerCase(); S.store = SupaStore(sb); await S.store.init(aoMudar);
+      if(!sessaoValida()){ const p=lista('pessoa').find(x=>x.status==='ativo' && String(x.email||'').toLowerCase()===S.authEmail); const at=p&&atribuicoesDe(p.id)[0]; if(at) await iniciarSessao(p.id, at.papel, at.unidadeId); }
+      S.pronto=true; render(); return; }
+    catch(e){ toast('Banco online indisponível: '+(e.message||e)+'. Usando a prévia.'); S.sb=null; }
+  }
+  let db=null; try { if(window.claude && typeof window.claude.use==='function') db = await window.claude.use('db'); } catch(e){ db=null; }
   S.store = db ? DbStore(db) : LocalStore();
   try { await S.store.init(aoMudar); } catch(e){ S.store=LocalStore(); await S.store.init(aoMudar); toast('Sem acesso aos dados compartilhados: usando só este navegador.'); }
   S.pronto=true; render();
